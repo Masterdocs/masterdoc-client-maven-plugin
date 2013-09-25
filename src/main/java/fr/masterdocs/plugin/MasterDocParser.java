@@ -36,11 +36,10 @@ public class MasterDocParser {
 
   /** Logger. */
   private static Logger LOGGER              = LoggerFactory.getLogger(MasterDocParser.class);
+  JCodeModel            codeModel;
   private ClassLoader   originalClassLoader = Thread.currentThread().getContextClassLoader();
   private ClassLoader   newClassLoader;
   private MavenProject  project;
-
-  JCodeModel            codeModel;
 
   public MasterDocParser(MavenProject project) {
     this.project = project;
@@ -70,14 +69,18 @@ public class MasterDocParser {
 
   public void createEntities(List<AbstractEntity> entities) throws JClassAlreadyExistsException, IOException, ClassNotFoundException, NoSuchFieldException,
       IllegalAccessException {
-    final ArrayList<AbstractEntity> errorEntityList = new ArrayList<AbstractEntity>();
-    for (AbstractEntity entity : entities) {
-      if (entity instanceof Enumeration) {
-        createEnumeration((Enumeration) entity, errorEntityList);
-      } else {
-        createClass((Entity) entity, errorEntityList);
+    ArrayList<AbstractEntity> errorEntityList = new ArrayList<AbstractEntity>();
+    do {
+      for (AbstractEntity entity : entities) {
+        if (entity instanceof Enumeration) {
+          createEnumeration((Enumeration) entity, errorEntityList);
+        } else {
+          createClass((Entity) entity, errorEntityList);
+        }
       }
-    }
+      entities = errorEntityList;
+      errorEntityList = new ArrayList<AbstractEntity>();
+    } while (!entities.isEmpty());
     generateProjectClassLoader(this.project);
     ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
     URL url = classLoader.getResource(".");
@@ -108,9 +111,25 @@ public class MasterDocParser {
   }
 
   public void createClass(Entity entity, ArrayList<AbstractEntity> errorEntityList) throws JClassAlreadyExistsException, IOException {
+    JDefinedClass definedClass = codeModel._getClass(entity.getName());
+    final String superClass = entity.getSuperClass();
+    if (null == definedClass) {
+      if (null != superClass) {
+        final JDefinedClass superClassCodeModel = codeModel._getClass(superClass);
+        if (null == superClassCodeModel) {
+          errorEntityList.add(entity);
+          return;
+        }
+
+      }
+      definedClass = codeModel._class(entity.getName());
+      if (null != superClass) {
+        definedClass._extends(codeModel._getClass(superClass));
+      }
+    }
     try {
-      JDefinedClass definedClass = codeModel._class(entity.getName());
       final Map<String, AbstractEntity> fields = entity.getFields();
+      final Map<String, JFieldVar> fieldsAlreadyCreated = definedClass.fields();
       if (null != fields && null != fields.keySet()) {
         final Iterator<String> iterator = fields.keySet().iterator();
         while (iterator.hasNext()) {
@@ -122,22 +141,25 @@ public class MasterDocParser {
 
             type = Class.forName(field.getName());
 
-            final JFieldVar jfield = definedClass.field(PRIVATE, type, key);
-            // Create the getter method and return the JFieldVar previously defined
-            String getterMethodName = "get" + capitalize(key);
-            JMethod getterMethod = definedClass.method(PUBLIC, type, getterMethodName);
-            JBlock block = getterMethod.body();
-            block._return(jfield);
-            // Create the setter method and set the JFieldVar previously defined with the given parameter
-            String setterMethodName = "set" + capitalize(key);
-            JMethod setterMethod = definedClass.method(PUBLIC, TYPE, setterMethodName);
-            String setterParameter = key;
-            setterMethod.param(type, setterParameter);
-            setterMethod.body().assign(_this().ref(key), ref(setterParameter));
+            if (!fieldsAlreadyCreated.containsKey(key)) {
+              final JFieldVar jfield = definedClass.field(PRIVATE, type, key);
+              // Create the getter method and return the JFieldVar previously defined
+              String getterMethodName = "get" + capitalize(key);
+              JMethod getterMethod = definedClass.method(PUBLIC, type, getterMethodName);
+              JBlock block = getterMethod.body();
+              block._return(jfield);
+              // Create the setter method and set the JFieldVar previously defined with the given parameter
+              String setterMethodName = "set" + capitalize(key);
+              JMethod setterMethod = definedClass.method(PUBLIC, TYPE, setterMethodName);
+              String setterParameter = key;
+              setterMethod.param(type, setterParameter);
+              setterMethod.body().assign(_this().ref(key), ref(setterParameter));
+            }
           }
         }
       }
     } catch (ClassNotFoundException e) {
+      definedClass = null;
       errorEntityList.add(entity);
     }
   }
