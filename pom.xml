@@ -43,6 +43,8 @@
         <assertj-core.version>1.2.0</assertj-core.version>
         <junit.version>4.10</junit.version>
         <codemodel.version>2.6</codemodel.version>
+        <sonatypeOssDistMgmtSnapshotsUrl>https://oss.sonatype.org/content/repositories/snapshots/
+        </sonatypeOssDistMgmtSnapshotsUrl>
     </properties>
     <dependencies>
 
